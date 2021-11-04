@@ -62,9 +62,9 @@ class ControllerNode:
         y_shift = [0, 1, 0]
         # target position
         self.target1 = [self.sphere1[i] + 0.8 * y_shift[i] for i in range(3)]
-        self.target2 = [self.sphere3[i] - 1 * y_shift[i] for i in range(3)]
-        self.target3 = [self.sphere2[i] - 1 * x_shift[i] for i in range(3)]
-        self.target4 = [self.sphere4[i] + 0.8 * y_shift[i] for i in range(3)]
+        self.target2 = [self.sphere3[i] - 1.5 * y_shift[i] for i in range(3)]
+        self.target3 = [self.sphere2[i] - 1.4 * x_shift[i] for i in range(3)]
+        self.target4 = [self.sphere4[i] + 1 * y_shift[i] for i in range(3)]
         self.target5 = [self.sphere5[i] + 0.8 * x_shift[i] for i in range(3)]
 
         # 一些常数
@@ -180,7 +180,7 @@ class ControllerNode:
         elif self.flight_state_ == self.FlightState.NAVIGATING3:
             rospy.loginfo('***NAVIGATING3...***')
             self.navigating_queue_ = deque(
-                [['y', 6.2], ['x', self.target3[0]], ['y', self.target3[1]], ['z', self.target3[2]]])
+                [['y', 6.8], ['x', self.target3[0]], ['y', self.target3[1]], ['z', self.target3[2]]])
             self.switchNavigatingState()
             self.next_state_ = self.FlightState.NAVIGATING3
 
