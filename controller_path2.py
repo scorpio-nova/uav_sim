@@ -31,7 +31,7 @@ class ControllerNode:
         NAVIGATING2 = 6
         NAVIGATING3 = 7
         NAVIGATING4 = 8
-        NAVIGATING5 = 9
+        NAVIGATING_FINAL = 9
 
     def __init__(self):
         rospy.init_node('controller_node', anonymous=True)
@@ -65,7 +65,7 @@ class ControllerNode:
         self.target1 = [self.sphere3[i] - 1.25 * y_shift[i] for i in range(3)]  # 球3 西侧
         self.target2 = [self.sphere1[i] + 1.25 * y_shift[i] for i in range(3)]  # 球1 东侧
         self.target3 = [self.sphere4[i] + 1.25 * y_shift[i] for i in range(3)]  # 球4 东侧
-        self.target4 = [self.sphere5[i] - 1.25 * x_shift[i] for i in range(3)]  # 球5 南侧
+        self.target4 = [self.sphere5[i] + 1.25 * x_shift[i] for i in range(3)]  # 球5 南侧
 
         # 一些常数
 
@@ -193,7 +193,7 @@ class ControllerNode:
         elif self.flight_state_ == self.FlightState.NAVIGATING_FINAL:
             rospy.loginfo('***NAVIGATING5(4->FINAL)...***')
             self.navigating_queue_ = deque(
-                [['x', 4 ],['y', 12.5], ['x', 7], ['y', 14.5]])
+                [['x', 4], ['y', 12.5], ['x', 7], ['y', 14.5]])
             self.switchNavigatingState()
             self.next_state_ = self.FlightState.LANDING
 
