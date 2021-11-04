@@ -87,7 +87,7 @@ class ControllerNode:
     # 按照一定频率进行决策，并发布tello格式控制信号
     def decision(self):
         # 超参数
-        min_navigation_distance = 0.2 #最小导航距离：如果当前无人机位置与目标位置在某个轴方向距离小于这个值，即不再这个轴方向上运动
+        min_navigation_distance = 0.2  # 最小导航距离：如果当前无人机位置与目标位置在某个轴方向距离小于这个值，即不再这个轴方向上运动
         #           起飞
         if self.flight_state_ == self.FlightState.WAITING:  # 起飞并飞至离墙体（y = 3.0m）适当距离的位置
             rospy.logwarn('State: WAITING')
@@ -149,6 +149,7 @@ class ControllerNode:
                 # 此处仅仅是做了一个粗糙的估计
                 win_dist = [abs(self.t_wu_[0] - win_x) for win_x in self.window_x_list_]
                 win_index = win_dist.index(min(win_dist))  # 正确的窗户编号
+                rospy.loginfo('Go to window %d' % win_index)
                 self.navigating_queue_ = deque(
                     [['y', 2.4], ['z', 1.0], ['x', self.window_x_list_[win_index]],
                      ['y', 4.0], ['x', 7]])  # 通过窗户并导航至特定位置
@@ -164,7 +165,8 @@ class ControllerNode:
         elif self.flight_state_ == self.FlightState.NAVIGATING1:
             rospy.loginfo('***NAVIGATING1...***')
             self.navigating_queue_ = deque(
-                [['y', 5.5], ['x', 5.5], ['y', self.target1[1]], ['x', self.target1[0]], ['z', self.target1[2]]])
+                [['y', 5.5], ['x', 5.0], ['y', self.target1[1]], ['x', self.target1[0]], ['z', self.target1[2]]])
+            # ['x', 5.5]: 碰1的上面 -> ['x', 5.0]
             self.switchNavigatingState()
             self.next_state_ = self.FlightState.NAVIGATING2
 
@@ -241,9 +243,9 @@ class ControllerNode:
             if contour_area_temp > contour_area_max:
                 contour_area_max = contour_area_temp
                 area_max_contour = c
-
         if area_max_contour is not None:
             if contour_area_max > 70:
+                rospy.loginfo("detected: contour_area_max = %.2f "%contour_area_max)
                 return True
         return False
 
