@@ -6,6 +6,7 @@
 # 本策略尽量使无人机的偏航角保持在初始值（90度）左右
 # 运行roslaunch uav_sim windows.launch后，再在另一个终端中运行rostopic pub /tello/cmd_start std_msgs/Bool "data: 1"即可开始飞行
 # 代码中的decision()函数和switchNavigatingState()函数共有3个空缺之处，需要同学们自行补全（每个空缺之处需要填上不超过3行代码）
+# path2: 3-1-4-5
 
 from scipy.spatial.transform import Rotation as R
 from collections import deque
@@ -61,11 +62,10 @@ class ControllerNode:
         x_shift = [1, 0, 0]
         y_shift = [0, 1, 0]
         # target position
-        self.target1 = [self.sphere1[i] + 1.25 * y_shift[i] for i in range(3)]
-        self.target2 = [self.sphere3[i] - 1.25 * y_shift[i] for i in range(3)]
-        self.target3 = [self.sphere2[i] - 1.25 * x_shift[i] for i in range(3)]
-        self.target4 = [self.sphere4[i] + 1 * y_shift[i] for i in range(3)]
-        self.target5 = [self.sphere5[i] + 1.25 * x_shift[i] for i in range(3)]
+        self.target1 = [self.sphere3[i] - 1.25 * y_shift[i] for i in range(3)]  # 球3 西侧
+        self.target2 = [self.sphere1[i] + 1.25 * y_shift[i] for i in range(3)]  # 球1 东侧
+        self.target3 = [self.sphere4[i] + 1.25 * y_shift[i] for i in range(3)]  # 球4 东侧
+        self.target4 = [self.sphere5[i] - 1.25 * x_shift[i] for i in range(3)]  # 球5 南侧
 
         # 一些常数
 
@@ -152,7 +152,7 @@ class ControllerNode:
                 rospy.loginfo('Go to window (0-2): %d' % win_index)
                 self.navigating_queue_ = deque(
                     [['y', 2.4], ['z', 1.0], ['x', self.window_x_list_[win_index]],
-                     ['y', 4.0], ['x', 7]])  # 通过窗户并导航至特定位置
+                     ['y', 4.0], ['x', 3]])  # 通过窗户并导航至特定位置
                 self.switchNavigatingState()
                 self.next_state_ = self.FlightState.NAVIGATING1
             else:
@@ -163,15 +163,15 @@ class ControllerNode:
                     self.publishCommand('right 75')
 
         elif self.flight_state_ == self.FlightState.NAVIGATING1:
-            rospy.loginfo('***NAVIGATING1...***')
+            rospy.loginfo('***NAVIGATING1(win->3)...***')
             self.navigating_queue_ = deque(
-                [['y', 5.5], ['x', 5.0], ['y', self.target1[1]], ['x', self.target1[0]], ['z', self.target1[2]]])
+                [['y', 6.0], ['x', 5.0], ['y', self.target1[1]], ['x', self.target1[0]], ['z', self.target1[2]]])
             # ['x', 5.5]: 碰1的北面 -> ['x', 5.0]
             self.switchNavigatingState()
             self.next_state_ = self.FlightState.NAVIGATING2
 
         elif self.flight_state_ == self.FlightState.NAVIGATING2:
-            rospy.loginfo('***NAVIGATING2...***')
+            rospy.loginfo('***NAVIGATING2(3->1)...***')
             self.navigating_queue_ = deque(
                 [['y', self.target2[1]], ['z', self.target2[2]], ['x', self.target2[0]]])
             self.switchNavigatingState()
@@ -186,7 +186,7 @@ class ControllerNode:
             self.next_state_ = self.FlightState.NAVIGATING4
 
         elif self.flight_state_ == self.FlightState.NAVIGATING4:
-            rospy.loginfo('***NAVIGATING4...***')
+            rospy.loginfo('***NAVIGATING3(1->4)...***')
             self.navigating_queue_ = deque(
                 [['y', self.target4[1]], ['x', self.target4[0], ['z', self.target4[2]]]])
             self.switchNavigatingState()
