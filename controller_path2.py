@@ -178,24 +178,22 @@ class ControllerNode:
             self.next_state_ = self.FlightState.NAVIGATING3
 
         elif self.flight_state_ == self.FlightState.NAVIGATING3:
-            rospy.loginfo('***NAVIGATING3...***')
+            rospy.loginfo('***NAVIGATING3(1->4)...***')
             self.navigating_queue_ = deque(
-                [['y', 6.2], ['x', self.target3[0]], ['y', self.target3[1]], ['z', self.target3[2]]])
-            # ['y', 6.8]:碰2的西面 -> ['y',6.2]
+                [['y', self.target3[1]], ['x', self.target3[0]], ['z', self.target3[2]]])
             self.switchNavigatingState()
             self.next_state_ = self.FlightState.NAVIGATING4
 
         elif self.flight_state_ == self.FlightState.NAVIGATING4:
-            rospy.loginfo('***NAVIGATING3(1->4)...***')
+            rospy.loginfo('***NAVIGATING4(4->5)...***')
             self.navigating_queue_ = deque(
                 [['y', self.target4[1]], ['x', self.target4[0], ['z', self.target4[2]]]])
             self.switchNavigatingState()
-            self.next_state_ = self.FlightState.NAVIGATING5
-
-        elif self.flight_state_ == self.FlightState.NAVIGATING5:
-            rospy.loginfo('***NAVIGATING5...***')
+            self.next_state_ = self.FlightState.LANDING
+        elif self.flight_state_ == self.FlightState.NAVIGATING_FINAL:
+            rospy.loginfo('***NAVIGATING5(4->FINAL)...***')
             self.navigating_queue_ = deque(
-                [['y', self.target5[1]], ['x', self.target5[0]], ['z', self.target5[2]]])
+                [['x', 4 ],['y', 12.5], ['x', 7], ['y', 14.5]])
             self.switchNavigatingState()
             self.next_state_ = self.FlightState.LANDING
 
@@ -247,7 +245,8 @@ class ControllerNode:
                 contour_area_max = contour_area_temp
                 area_max_contour = c
         if area_max_contour is not None:
-            if contour_area_max > 70:
+            if contour_area_max > 110:
+                # 70 -> 110 (win2: contour_area_max=137 detected: win1 -- fails)
                 rospy.loginfo("detected: contour_area_max = %.2f " % contour_area_max)
                 return True
         return False
