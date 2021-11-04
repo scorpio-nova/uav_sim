@@ -61,11 +61,11 @@ class ControllerNode:
         x_shift = [1, 0, 0]
         y_shift = [0, 1, 0]
         # target position
-        self.target1 = [self.sphere1[i] + 0.8 * y_shift[i] for i in range(3)]
-        self.target2 = [self.sphere3[i] - 1.5 * y_shift[i] for i in range(3)]
-        self.target3 = [self.sphere2[i] - 1.4 * x_shift[i] for i in range(3)]
+        self.target1 = [self.sphere1[i] + 1.25 * y_shift[i] for i in range(3)]
+        self.target2 = [self.sphere3[i] - 1.25 * y_shift[i] for i in range(3)]
+        self.target3 = [self.sphere2[i] - 1.25 * x_shift[i] for i in range(3)]
         self.target4 = [self.sphere4[i] + 1 * y_shift[i] for i in range(3)]
-        self.target5 = [self.sphere5[i] + 0.8 * x_shift[i] for i in range(3)]
+        self.target5 = [self.sphere5[i] + 1.25 * x_shift[i] for i in range(3)]
 
         # 一些常数
 
@@ -88,14 +88,14 @@ class ControllerNode:
     def decision(self):
         # 超参数
         min_navigation_distance = 0.2  # 最小导航距离：如果当前无人机位置与目标位置在某个轴方向距离小于这个值，即不再这个轴方向上运动
-        #           起飞
+        # 起飞
         if self.flight_state_ == self.FlightState.WAITING:  # 起飞并飞至离墙体（y = 3.0m）适当距离的位置
             rospy.logwarn('State: WAITING')
             self.publishCommand('takeoff')
             self.navigating_queue_ = deque([['y', 1.8]])
             self.switchNavigatingState()
             self.next_state_ = self.FlightState.DETECTING_TARGET
-        #           巡航
+        # 巡航
         elif self.flight_state_ == self.FlightState.NAVIGATING:
             rospy.logwarn('State: NAVIGATING')
             # 如果yaw与90度相差超过正负10度，需要进行旋转调整yaw
@@ -166,7 +166,7 @@ class ControllerNode:
             rospy.loginfo('***NAVIGATING1...***')
             self.navigating_queue_ = deque(
                 [['y', 5.5], ['x', 5.0], ['y', self.target1[1]], ['x', self.target1[0]], ['z', self.target1[2]]])
-            # ['x', 5.5]: 碰1的上面 -> ['x', 5.0]
+            # ['x', 5.5]: 碰1的北面 -> ['x', 5.0]
             self.switchNavigatingState()
             self.next_state_ = self.FlightState.NAVIGATING2
 
@@ -180,19 +180,22 @@ class ControllerNode:
         elif self.flight_state_ == self.FlightState.NAVIGATING3:
             rospy.loginfo('***NAVIGATING3...***')
             self.navigating_queue_ = deque(
-                [['y', 6.8], ['x', self.target3[0]], ['y', self.target3[1]], ['z', self.target3[2]]])
+                [['y', 6.2], ['x', self.target3[0]], ['y', self.target3[1]], ['z', self.target3[2]]])
+            # ['y', 6.8]:碰2的西面 -> ['y',6.2]
             self.switchNavigatingState()
-            self.next_state_ = self.FlightState.NAVIGATING3
+            self.next_state_ = self.FlightState.NAVIGATING4
 
         elif self.flight_state_ == self.FlightState.NAVIGATING4:
+            rospy.loginfo('***NAVIGATING4...***')
             self.navigating_queue_ = deque(
-                [['y', self.target4[1]], ['z', self.target4[2]], ['x', self.target4[0]]])
+                [['y', self.target4[1]], ['x', self.target4[0], ['z', self.target4[2]]]])
             self.switchNavigatingState()
             self.next_state_ = self.FlightState.NAVIGATING5
 
         elif self.flight_state_ == self.FlightState.NAVIGATING5:
+            rospy.loginfo('***NAVIGATING5...***')
             self.navigating_queue_ = deque(
-                [['y', self.target5[1]], ['z', self.target5[2]], ['x', self.target5[0]]])
+                [['y', self.target5[1]], ['x', self.target5[0]], ['z', self.target5[2]]])
             self.switchNavigatingState()
             self.next_state_ = self.FlightState.LANDING
 
@@ -245,7 +248,7 @@ class ControllerNode:
                 area_max_contour = c
         if area_max_contour is not None:
             if contour_area_max > 70:
-                rospy.loginfo("detected: contour_area_max = %.2f "%contour_area_max)
+                rospy.loginfo("detected: contour_area_max = %.2f " % contour_area_max)
                 return True
         return False
 
