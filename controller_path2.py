@@ -174,54 +174,47 @@ class ControllerNode:
             if self.stage == 0:  # 导航与检测
                 rospy.loginfo('***NAVIGATING1(win->3)...***')
                 rospy.loginfo('[[Stage 0 - goto 3]]')
-                self.navigating_queue_ = deque(
-                    [['y', 6.0], ['x', 5.0], ['y', self.target1[1]], ['x', self.target1[0]], ['z', self.target1[2]]])
+                self.navigating_queue_ = deque([['y', 6.0], ['x', 5.0]])
+                self.stage = 1
                 # ['x', 5.5]: 碰1的北面 -> ['x', 5.0]
                 self.switchNavigatingState()
-                self.next_state_ = self.FlightState.NAVIGATING1
-                self.stage = 1
                 # 检测1
             elif self.stage == 1:  # 转向
                 rospy.loginfo('[[Stage 1 - turn 90 and goto next position]]')
                 x = self.detect(self.target1)
                 if x == 1:
                     self.commandlist[2] = 'r'
-                if x == 2:
+                elif x == 2:
                     self.commandlist[2] = 'y'
-                if x == 3:
+                elif x == 3:
                     self.commandlist[2] = 'b'
                 commandstring = 'eeeee'
                 commandstring = ''.join(self.commandlist)
-                self.publishResult(commandstring)
                 self.target_yaw = 0
-                self.yaw_x = self.target1[0]
-                self.yaw_y = self.target1[1]
+                self.yaw_x = self.target2[0]
+                self.yaw_y = self.target2[1]
                 self.adjust_yaw_pos = True
-                self.switchNavigatingState()
                 self.next_state_ = self.FlightState.NAVIGATING2
                 self.stage = 0
+                self.switchNavigatingState()
 
         elif self.flight_state_ == self.FlightState.NAVIGATING2:
             if self.stage == 0:  # 导航
                 rospy.loginfo('***NAVIGATING2(3->1)...***')
                 self.target_yaw = -90
-                self.yaw_x = self.target2[0]
-                self.yaw_y = self.target2[1]
                 self.adjust_yaw_pos = True
                 self.navigating_queue_ = deque(
                     [['y', self.target2[1]], ['z', self.target2[2]], ['x', self.target2[0]]])
-                self.switchNavigatingState()
                 self.stage = 1
+                self.switchNavigatingState()
             if self.stage == 1:  # 检测
                 x = self.detect(self.target2)
                 if x == 1:
                     self.commandlist[0] = 'r'
-                if x == 2:
+                elif x == 2:
                     self.commandlist[0] = 'y'
-                if x == 3:
+                elif x == 3:
                     self.commandlist[0] = 'b'
-                commandstring = ''.join(self.commandlist)
-                self.publishResult(commandstring)
                 self.next_state_ = self.FlightState.NAVIGATING3
 
         elif self.flight_state_ == self.FlightState.NAVIGATING3:
@@ -232,12 +225,10 @@ class ControllerNode:
             x = self.detect(self.target3)
             if x == 1:
                 self.commandlist[3] = 'r'
-            if x == 2:
+            elif x == 2:
                 self.commandlist[3] = 'y'
-            if x == 3:
+            elif x == 3:
                 self.commandlist[3] = 'b'
-            commandstring = ''.join(self.commandlist)
-            self.publishResult(commandstring)
             self.next_state_ = self.FlightState.NAVIGATING4
 
         elif self.flight_state_ == self.FlightState.NAVIGATING4:
@@ -252,10 +243,16 @@ class ControllerNode:
             x = self.detect(self.target4)
             if x == 1:
                 self.commandlist[4] = 'r'
-            if x == 2:
+            elif x == 2:
                 self.commandlist[4] = 'y'
-            if x == 3:
+            elif x == 3:
                 self.commandlist[4] = 'b'
+            if 'r' not in self.commandlist:
+                self.commandlist[1] = 'r'
+            elif 'y' not in self.commandlist:
+                self.commandlist[1] = 'y'
+            elif 'b' not in self.commandlist:
+                self.commandlist[1] = 'b'
             commandstring = ''.join(self.commandlist)
             self.publishResult(commandstring)
             self.next_state_ = self.FlightState.LANDING
@@ -323,8 +320,8 @@ class ControllerNode:
             return True
         elif self.adjust_yaw_pos:
             rospy.logwarn("try to adjust yaw position to (x,y)=(%.2f,%.2f)" % (self.yaw_x, self.yaw_y))
-            deque.appendleft(self.navigating_queue_, ['x', self.yaw_x])
             deque.appendleft(self.navigating_queue_, ['y', self.yaw_y])
+            deque.appendleft(self.navigating_queue_, ['x', self.yaw_x])
             self.adjust_yaw_pos = False
         return False
 
