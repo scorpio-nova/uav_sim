@@ -32,6 +32,7 @@ class ControllerNode:
         NAVIGATING3 = 7
         NAVIGATING4 = 8
         NAVIGATING_FINAL = 9
+        DETECTING_SPHERE = 10
 
     def __init__(self):
         rospy.init_node('controller_node', anonymous=True)
@@ -66,12 +67,13 @@ class ControllerNode:
         self.target2 = [self.sphere1[i] + 1.25 * y_shift[i] for i in range(3)]  # 球1 东侧
         self.target3 = [self.sphere4[i] + 1.25 * y_shift[i] for i in range(3)]  # 球4 东侧
         self.target4 = [self.sphere5[i] + 1.25 * x_shift[i] for i in range(3)]  # 球5 南侧
-        self.target_z = 1  # 初始化为window的中心高度
+        self.target_z = 1.75  # 初始化为window的中心高度
         self.target_yaw = 90  # 初始化为识别window红点时的方向
         self.target_pitch = 0
         self.yaw_x = None
         self.yaw_y = None
         self.adjust_yaw_pos = False
+        self.stage = 0
 
         # 超参数
         self.min_navigation_distance = 0.2  # 最小导航距离：如果当前无人机位置与目标位置在某个轴方向距离小于这个值，即不再这个轴方向上运动
@@ -102,11 +104,10 @@ class ControllerNode:
         # 巡航
         elif self.flight_state_ == self.FlightState.NAVIGATING:
             rospy.logwarn('State: NAVIGATING')
-            rospy.loginfo('current position (x,y,z) = (%d,%d,%d)' % (self.t_wu_[0], self.t_wu_[1], self.t_wu_[2]))
+            rospy.loginfo('current position (x,y,z) = (%.2f,%.2f,%.2f)' % (self.t_wu_[0], self.t_wu_[1], self.t_wu_[2]))
             # 如果yaw与90度相差超过正负10度，需要进行旋转调整yaw
-            self.adjust_yaw(self.target_yaw, self.yaw_x, self.yaw_y)
-            self.adjust_pitch(self.target_pitch)
-            rospy.loginfo('after: position (x,y,z) = (%d,%d,%d)' % (self.t_wu_[0], self.t_wu_[1], self.t_wu_[2]))
+            self.adjust_yaw(self.target_yaw)
+            # self.adjust_pitch(self.target_pitch)
             dim_index = 0 if self.navigating_dimension_ == 'x' else (1 if self.navigating_dimension_ == 'y' else 2)
             dist = self.navigating_destination_ - self.t_wu_[dim_index]
             if abs(dist) < self.min_navigation_distance:  # 当前段导航结束
@@ -121,6 +122,24 @@ class ControllerNode:
                     self.publishCommand(command + '100')
                 else:
                     self.publishCommand(command + str(int(abs(100 * dist))))
+        elif self.flight_state_ == self.FlightState.DETECTING_SPHERE:
+            rospy.logwarn('State: DETECTING_SPHERE')
+            # 如果无人机飞行高度与球高度相差太多，则需要进行调整
+            if self.t_wu_[2] > self.target_z + 0.25:
+                self.publishCommand('down %d' % int(100 * (self.t_wu_[2] - 1.75)))
+                return
+            elif self.t_wu_[2] < self.target_z - 0.25:
+                self.publishCommand('up %d' % int(-100 * (self.t_wu_[2] - 1.75)))
+                return
+            # 如果yaw与90度相差超过正负10度，需要进行旋转调整yaw
+            self.adjust_yaw(self.target_yaw)
+
+            if self.detectTarget():
+                # rospy.loginfo('Target detected.')]
+                rospy.loginfo('true')
+            else:
+                rospy.loginfo('false')
+            self.switchNavigatingState()
 
         elif self.flight_state_ == self.FlightState.DETECTING_TARGET:
             rospy.logwarn('State: DETECTING_TARGET')
@@ -162,20 +181,35 @@ class ControllerNode:
                     self.publishCommand('right 75')
 
         elif self.flight_state_ == self.FlightState.NAVIGATING1:
-            rospy.loginfo('***NAVIGATING1(win->3)...***')
-            self.navigating_queue_ = deque(
-                [['y', 6.0], ['x', 5.0], ['y', self.target1[1]], ['x', self.target1[0]], ['z', self.target1[2]]])
-            # ['x', 5.5]: 碰1的北面 -> ['x', 5.0]
-            self.switchNavigatingState()
-            self.next_state_ = self.FlightState.NAVIGATING2
+            if self.stage == 0:  # 导航与检测
+                rospy.loginfo('***NAVIGATING1(win->3)...***')
+                rospy.loginfo('[[Stage 0]]')
+                self.navigating_queue_ = deque(
+                    [['y', 6.0], ['x', 5.0], ['y', self.target1[1]], ['x', self.target1[0]], ['z', self.target1[2]]])
+                # ['x', 5.5]: 碰1的北面 -> ['x', 5.0]
+                self.switchNavigatingState()
+                self.next_state_ = self.FlightState.NAVIGATING1
+                self.stage = 1
+                # 检测1
+
+            elif self.stage == 1:  # 升高
+                rospy.loginfo('[[Stage 1]]')
+
+                self.switchNavigatingState()
+                self.stage = 2
+            else:  # 转向并去2
+                rospy.loginfo('[[Stage 2]]')
+                self.target_yaw = -90
+                self.yaw_x = self.target2[0]
+                self.yaw_y = self.target2[1]
+                self.switchNavigatingState()
+                self.next_state_ = self.FlightState.NAVIGATING2
 
         elif self.flight_state_ == self.FlightState.NAVIGATING2:
             rospy.loginfo('***NAVIGATING2(3->1)...***')
             self.navigating_queue_ = deque(
                 [['y', self.target2[1]], ['z', self.target2[2]], ['x', self.target2[0]]])
-            self.target_yaw = -90
-            self.yaw_x = self.target1[0]
-            self.yaw_y = self.target1[1]
+            self.adjust_yaw_pos = True
             self.switchNavigatingState()
             self.next_state_ = self.FlightState.NAVIGATING3
 
@@ -191,6 +225,7 @@ class ControllerNode:
             self.target_yaw = 180
             self.yaw_x = self.target3[0]
             self.yaw_y = self.target3[1]
+            self.adjust_yaw_pos = True
             self.navigating_queue_ = deque(
                 [['y', self.target4[1]], ['x', self.target4[0], ['z', self.target4[2]]]])
             self.switchNavigatingState()
@@ -224,29 +259,41 @@ class ControllerNode:
     def adjust_yaw(self, target_yaw):  # 返回值为是否发布命令
         (yaw, pitch, roll) = self.R_wu_.as_euler('zyx', degrees=True)
         yaw_diff = yaw - target_yaw if yaw > target_yaw - 180 else yaw + 360 - target_yaw
+        rospy.loginfo('curr_yaw: %d' % yaw)
+        rospy.loginfo('targer_yaw: %d' % target_yaw)
         if yaw_diff > 10:  # clockwise
             rospy.logwarn("prepare to adjust yaw ...")
-            rospy.loginfo('before: position (x,y,z) = (%d,%d,%d)' % (self.t_wu_[0], self.t_wu_[1], self.t_wu_[2]))
+            if yaw_diff > 90:
+                self.publishCommand('cw 90')
+                rospy.loginfo('cw 90')
+                deque.appendleft(self.navigating_queue_, ['x', self.yaw_x])
+                deque.appendleft(self.navigating_queue_, ['y', self.yaw_y])
+                yaw_diff -= 90
             self.publishCommand('cw %d' % (int(yaw_diff) if yaw_diff > 15 else 15))
-            self.publishCommand('')
+            rospy.loginfo('cw %d' % (int(yaw_diff) if yaw_diff > 15 else 15))
             return True
         elif yaw_diff < -10:  # counterclockwise
-            # 发布相应的tello控制命令
+            if yaw_diff < -90:
+                self.publishCommand('ccw 90')
+                rospy.loginfo('ccw 90')
+                deque.appendleft(self.navigating_queue_, ['x', self.yaw_x])
+                deque.appendleft(self.navigating_queue_, ['y', self.yaw_y])
+                yaw_diff += 90
             rospy.logwarn("prepare to adjust yaw ...")
-            rospy.loginfo('before: position (x,y,z) = (%d,%d,%d)' % (self.t_wu_[0], self.t_wu_[1], self.t_wu_[2]))
-            self.publishCommand('ccw %d' % (int(-yaw_diff) if yaw_diff < -15 else 15))
+            self.publishCommand('ccw %d' % (int(-yaw_diff + 10) if yaw_diff < -15 else 15))
+            rospy.loginfo('ccw %d' % (int(-yaw_diff + 10) if yaw_diff < -15 else 15))
             return True
-        elif self.adjust_yaw_pos == True:
-            rospy.logwarn("no need to adjust yaw ... try to adjust position")
-            deque.appendleft(['x',self.yaw_x])
-            deque.appendleft(['y',self.yaw_y])
+        elif self.adjust_yaw_pos:
+            rospy.logwarn("try to adjust yaw position to (x,y)=(%.2f,%.2f)" % (self.yaw_x, self.yaw_y))
+            deque.appendleft(self.navigating_queue_, ['x', self.yaw_x])
+            deque.appendleft(self.navigating_queue_, ['y', self.yaw_y])
+            self.adjust_yaw_pos = False
         return False
 
     def adjust_pitch(self, target_pitch):  # 返回值为是否发布命令
         (yaw, pitch, roll) = self.R_wu_.as_euler('zyx', degrees=True)
         rospy.logwarn("prepare to adjust pitch ...")
-        rospy.loginfo('before: position (x,y,z) = (%d,%d,%d)' % (self.t_wu_[0], self.t_wu_[1], self.t_wu_[2]))
-        pitch_diff = pitch - target_pitch if pitch > target_pitch - 180 else pitch+ 360 - target_pitch
+        pitch_diff = pitch - target_pitch if pitch > target_pitch - 180 else pitch + 360 - target_pitch
         if pitch_diff > 10:  # clockwise
             self.publishCommand('cw %d' % (int(pitch_diff) if pitch_diff > 15 else 15))
             return True
@@ -285,6 +332,7 @@ class ControllerNode:
                 contour_area_max = contour_area_temp
                 area_max_contour = c
         if area_max_contour is not None:
+            cv2.imwrite('/home/thudrone/img/photo.jpg', self.image_)
             if contour_area_max > 110:
                 # 70 -> 110 (win2: contour_area_max=137 detected: win1 -- fails)
                 rospy.loginfo("detected: contour_area_max = %.2f " % contour_area_max)
