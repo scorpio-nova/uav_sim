@@ -43,7 +43,9 @@ class ControllerNode:
         self.t_wu_ = np.zeros([3], dtype=np.float64)
 
         self.image_ = None
-        self.color_range_ = [(0, 43, 46), (6, 255, 255)]  # 红色的HSV范围
+        self.color_range_red = [(0, 43, 46), (6, 255, 255)]  # 红色的HSV范围
+        self.color_range_yellow = [(26, 43, 46), (34, 255, 255)]  # 黄色的HSV范围
+        self.color_range_blue = [(100, 43, 46), (124, 255, 255)]  # 蓝色的HSV范围
         self.bridge_ = CvBridge()
 
         self.flight_state_ = self.FlightState.WAITING
@@ -77,7 +79,7 @@ class ControllerNode:
 
         # 超参数
         self.min_navigation_distance = 0.2  # 最小导航距离：如果当前无人机位置与目标位置在某个轴方向距离小于这个值，即不再这个轴方向上运动
-
+        self.count = 0
         # 无人机通讯相关
         self.is_begin_ = False
         self.commandPub_ = rospy.Publisher('/tello/cmd_string', String, queue_size=100)  # 发布tello格式控制信号
@@ -122,24 +124,6 @@ class ControllerNode:
                     self.publishCommand(command + '100')
                 else:
                     self.publishCommand(command + str(int(abs(100 * dist))))
-        elif self.flight_state_ == self.FlightState.DETECTING_SPHERE:
-            rospy.logwarn('State: DETECTING_SPHERE')
-            # 如果无人机飞行高度与球高度相差太多，则需要进行调整
-            if self.t_wu_[2] > self.target_z + 0.25:
-                self.publishCommand('down %d' % int(100 * (self.t_wu_[2] - 1.75)))
-                return
-            elif self.t_wu_[2] < self.target_z - 0.25:
-                self.publishCommand('up %d' % int(-100 * (self.t_wu_[2] - 1.75)))
-                return
-            # 如果yaw与90度相差超过正负10度，需要进行旋转调整yaw
-            self.adjust_yaw(self.target_yaw)
-
-            if self.detectTarget():
-                # rospy.loginfo('Target detected.')]
-                rospy.loginfo('true')
-            else:
-                rospy.loginfo('false')
-            self.switchNavigatingState()
 
         elif self.flight_state_ == self.FlightState.DETECTING_TARGET:
             rospy.logwarn('State: DETECTING_TARGET')
@@ -256,6 +240,29 @@ class ControllerNode:
             self.flight_state_ = self.FlightState.NAVIGATING
             # end of TODO 3
 
+    def detect(self, target_position):
+        rospy.logwarn('State: DETECTING_TARGET')
+            # 如果无人机飞行高度与标识高度（1.75m）相差太多，则需要进行调整
+        if self.t_wu_[2] > target_position[2]+0.25:
+            self.publishCommand('down %d' % int(100 * (self.t_wu_[2] - target_position[2])))
+        elif self.t_wu_[2] < target_position[2]-0.25:
+            self.publishCommand('up %d' % int(-100 * (self.t_wu_[2] - target_position[2])))
+        # 如果yaw与90度相差超过正负10度，需要进行旋转调整yaw
+        self.adjust_yaw(self.target_yaw)
+
+        if self.detectTarget() == 1:
+            rospy.loginfo('Target detected red.')
+            return True
+        elif self.detectTarget() == 2:
+            rospy.loginfo('Target detected yellow.')
+            return True
+        elif self.detectTarget() == 3:
+            rospy.loginfo('Target detected blue.')
+            return True
+        return False
+
+
+
     def adjust_yaw(self, target_yaw):  # 返回值为是否发布命令
         (yaw, pitch, roll) = self.R_wu_.as_euler('zyx', degrees=True)
         yaw_diff = yaw - target_yaw if yaw > target_yaw - 180 else yaw + 360 - target_yaw
@@ -318,25 +325,63 @@ class ControllerNode:
         v = cv2.equalizeHist(v)  # 直方图化
         frame = cv2.merge((h, s, v))  # 合并三个通道
 
-        frame = cv2.inRange(frame, self.color_range_[0], self.color_range_[1])  # 对原图像和掩模进行位运算
-        opened = cv2.morphologyEx(frame, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))  # 开运算
-        closed = cv2.morphologyEx(opened, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))  # 闭运算
-        (image, contours, hierarchy) = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # 找出轮廓
+        frame_red = cv2.inRange(frame, self.color_range_red[0], self.color_range_red[1])  # 对原图像和掩模进行位运算
+        opened_red = cv2.morphologyEx(frame_red, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))  # 开运算
+        closed_red = cv2.morphologyEx(opened_red, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))  # 闭运算
+        (image_red, contours_red, hierarchy_red) = cv2.findContours(closed_red, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # 找出轮廓
 
         # 在contours中找出最大轮廓
-        contour_area_max = 0
-        area_max_contour = None
-        for c in contours:  # 遍历所有轮廓
-            contour_area_temp = math.fabs(cv2.contourArea(c))  # 计算轮廓面积
-            if contour_area_temp > contour_area_max:
-                contour_area_max = contour_area_temp
-                area_max_contour = c
-        if area_max_contour is not None:
-            cv2.imwrite('/home/thudrone/img/photo.jpg', self.image_)
-            if contour_area_max > 110:
-                # 70 -> 110 (win2: contour_area_max=137 detected: win1 -- fails)
-                rospy.loginfo("detected: contour_area_max = %.2f " % contour_area_max)
-                return True
+        contour_area_max_red = 0
+        area_max_contour_red = None
+        for c in contours_red:  # 遍历所有轮廓
+            contour_area_temp_red = math.fabs(cv2.contourArea(c))  # 计算轮廓面积
+            if contour_area_temp_red > contour_area_max_red:
+                contour_area_max_red = contour_area_temp_red
+                area_max_contour_red = c
+
+        if area_max_contour_red is not None:
+            if contour_area_max_red > 50:
+                rospy.loginfo("detected: contour_area_max_red = %.2f " % contour_area_max_red)
+                return 1
+
+        frame_yellow = cv2.inRange(frame, self.color_range_yellow[0], self.color_range_yellow[1])  # 对原图像和掩模进行位运算
+        opened_yellow = cv2.morphologyEx(frame_yellow, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))  # 开运算
+        closed_yellow = cv2.morphologyEx(opened_yellow, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))  # 闭运算
+        (image_yellow, contours_yellow, hierarchy_yellow) = cv2.findContours(closed_yellow, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # 找出轮廓
+
+        # 在contours中找出最大轮廓
+        contour_area_max_yellow = 0
+        area_max_contour_yellow = None
+        for c in contours_yellow:  # 遍历所有轮廓
+            contour_area_temp_yellow = math.fabs(cv2.contourArea(c))  # 计算轮廓面积
+            if contour_area_temp_yellow > contour_area_max_yellow:
+                contour_area_max_yellow = contour_area_temp_yellow
+                area_max_contour_yellow = c
+
+        if area_max_contour_yellow is not None:
+            if contour_area_max_yellow > 50:
+                rospy.loginfo("detected: contour_area_max_yellow = %.2f " % contour_area_max_yellow)
+                return 2
+
+
+        frame_blue = cv2.inRange(frame, self.color_range_blue[0], self.color_range_blue[1])  # 对原图像和掩模进行位运算
+        opened_blue = cv2.morphologyEx(frame_blue, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))  # 开运算
+        closed_blue = cv2.morphologyEx(opened_blue, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))  # 闭运算
+        (image_blue, contours_blue, hierarchy_blue) = cv2.findContours(closed_blue, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # 找出轮廓
+
+        # 在contours中找出最大轮廓
+        contour_area_max_blue = 0
+        area_max_contour_blue = None
+        for c in contours_blue:  # 遍历所有轮廓
+            contour_area_temp_blue = math.fabs(cv2.contourArea(c))  # 计算轮廓面积
+            if contour_area_temp_blue > contour_area_max_blue:
+                contour_area_max_blue = contour_area_temp_blue
+                area_max_contour_blue = c
+
+        if area_max_contour_blue is not None:
+            if contour_area_max_blue > 50:
+                rospy.loginfo("detected: contour_area_max_blue = %.2f " % contour_area_max_blue)
+                return 3
         return False
 
     # 向相关topic发布tello命令
