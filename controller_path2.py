@@ -66,18 +66,24 @@ class ControllerNode:
         self.target2 = [self.sphere1[i] + 1.25 * y_shift[i] for i in range(3)]  # 球1 东侧
         self.target3 = [self.sphere4[i] + 1.25 * y_shift[i] for i in range(3)]  # 球4 东侧
         self.target4 = [self.sphere5[i] + 1.25 * x_shift[i] for i in range(3)]  # 球5 南侧
+        self.target_z = 1  # 初始化为window的中心高度
+        self.target_yaw = 90  # 初始化为识别window红点时的方向
+        self.target_pitch = 0
+        self.yaw_x = None
+        self.yaw_y = None
+        self.adjust_yaw_pos = False
 
-        # 一些常数
+        # 超参数
+        self.min_navigation_distance = 0.2  # 最小导航距离：如果当前无人机位置与目标位置在某个轴方向距离小于这个值，即不再这个轴方向上运动
 
+        # 无人机通讯相关
         self.is_begin_ = False
-
         self.commandPub_ = rospy.Publisher('/tello/cmd_string', String, queue_size=100)  # 发布tello格式控制信号
-
         self.poseSub_ = rospy.Subscriber('/tello/states', PoseStamped, self.poseCallback)  # 接收处理含噪无人机位姿信息
         self.imageSub_ = rospy.Subscriber('/iris/usb_cam/image_raw', Image, self.imageCallback)  # 接收摄像头图像
         self.imageSub_ = rospy.Subscriber('/tello/cmd_start', Bool, self.startcommandCallback)  # 接收开始飞行的命令
-
         rate = rospy.Rate(0.3)
+
         while not rospy.is_shutdown():
             if self.is_begin_:
                 self.decision()
@@ -86,8 +92,6 @@ class ControllerNode:
 
     # 按照一定频率进行决策，并发布tello格式控制信号
     def decision(self):
-        # 超参数
-        min_navigation_distance = 0.2  # 最小导航距离：如果当前无人机位置与目标位置在某个轴方向距离小于这个值，即不再这个轴方向上运动
         # 起飞
         if self.flight_state_ == self.FlightState.WAITING:  # 起飞并飞至离墙体（y = 3.0m）适当距离的位置
             rospy.logwarn('State: WAITING')
@@ -98,19 +102,14 @@ class ControllerNode:
         # 巡航
         elif self.flight_state_ == self.FlightState.NAVIGATING:
             rospy.logwarn('State: NAVIGATING')
+            rospy.loginfo('current position (x,y,z) = (%d,%d,%d)' % (self.t_wu_[0], self.t_wu_[1], self.t_wu_[2]))
             # 如果yaw与90度相差超过正负10度，需要进行旋转调整yaw
-            (yaw, pitch, roll) = self.R_wu_.as_euler('zyx', degrees=True)
-            yaw_diff = yaw - 90 if yaw > -90 else yaw + 270
-            if yaw_diff > 10:  # clockwise
-                self.publishCommand('cw %d' % (int(yaw_diff) if yaw_diff > 15 else 15))
-                return
-            elif yaw_diff < -10:  # counterclockwise
-                # 发布相应的tello控制命令
-                self.publishCommand('ccw %d' % (int(-yaw_diff) if yaw_diff < -15 else 15))
-                return
+            self.adjust_yaw(self.target_yaw, self.yaw_x, self.yaw_y)
+            self.adjust_pitch(self.target_pitch)
+            rospy.loginfo('after: position (x,y,z) = (%d,%d,%d)' % (self.t_wu_[0], self.t_wu_[1], self.t_wu_[2]))
             dim_index = 0 if self.navigating_dimension_ == 'x' else (1 if self.navigating_dimension_ == 'y' else 2)
             dist = self.navigating_destination_ - self.t_wu_[dim_index]
-            if abs(dist) < min_navigation_distance:  # 当前段导航结束
+            if abs(dist) < self.min_navigation_distance:  # 当前段导航结束
                 self.switchNavigatingState()
             else:
                 dir_index = 0 if dist > 0 else 1  # direction index
@@ -174,6 +173,9 @@ class ControllerNode:
             rospy.loginfo('***NAVIGATING2(3->1)...***')
             self.navigating_queue_ = deque(
                 [['y', self.target2[1]], ['z', self.target2[2]], ['x', self.target2[0]]])
+            self.target_yaw = -90
+            self.yaw_x = self.target1[0]
+            self.yaw_y = self.target1[1]
             self.switchNavigatingState()
             self.next_state_ = self.FlightState.NAVIGATING3
 
@@ -186,6 +188,9 @@ class ControllerNode:
 
         elif self.flight_state_ == self.FlightState.NAVIGATING4:
             rospy.loginfo('***NAVIGATING4(4->5)...***')
+            self.target_yaw = 180
+            self.yaw_x = self.target3[0]
+            self.yaw_y = self.target3[1]
             self.navigating_queue_ = deque(
                 [['y', self.target4[1]], ['x', self.target4[0], ['z', self.target4[2]]]])
             self.switchNavigatingState()
@@ -215,6 +220,41 @@ class ControllerNode:
             rospy.loginfo("next_nav:(%s,%.2f)" % (next_nav[0], next_nav[1]))
             self.flight_state_ = self.FlightState.NAVIGATING
             # end of TODO 3
+
+    def adjust_yaw(self, target_yaw):  # 返回值为是否发布命令
+        (yaw, pitch, roll) = self.R_wu_.as_euler('zyx', degrees=True)
+        yaw_diff = yaw - target_yaw if yaw > target_yaw - 180 else yaw + 360 - target_yaw
+        if yaw_diff > 10:  # clockwise
+            rospy.logwarn("prepare to adjust yaw ...")
+            rospy.loginfo('before: position (x,y,z) = (%d,%d,%d)' % (self.t_wu_[0], self.t_wu_[1], self.t_wu_[2]))
+            self.publishCommand('cw %d' % (int(yaw_diff) if yaw_diff > 15 else 15))
+            self.publishCommand('')
+            return True
+        elif yaw_diff < -10:  # counterclockwise
+            # 发布相应的tello控制命令
+            rospy.logwarn("prepare to adjust yaw ...")
+            rospy.loginfo('before: position (x,y,z) = (%d,%d,%d)' % (self.t_wu_[0], self.t_wu_[1], self.t_wu_[2]))
+            self.publishCommand('ccw %d' % (int(-yaw_diff) if yaw_diff < -15 else 15))
+            return True
+        elif self.adjust_yaw_pos == True:
+            rospy.logwarn("no need to adjust yaw ... try to adjust position")
+            deque.appendleft(['x',self.yaw_x])
+            deque.appendleft(['y',self.yaw_y])
+        return False
+
+    def adjust_pitch(self, target_pitch):  # 返回值为是否发布命令
+        (yaw, pitch, roll) = self.R_wu_.as_euler('zyx', degrees=True)
+        rospy.logwarn("prepare to adjust pitch ...")
+        rospy.loginfo('before: position (x,y,z) = (%d,%d,%d)' % (self.t_wu_[0], self.t_wu_[1], self.t_wu_[2]))
+        pitch_diff = pitch - target_pitch if pitch > target_pitch - 180 else pitch+ 360 - target_pitch
+        if pitch_diff > 10:  # clockwise
+            self.publishCommand('cw %d' % (int(pitch_diff) if pitch_diff > 15 else 15))
+            return True
+        elif pitch_diff < -10:  # counterclockwise
+            # 发布相应的tello控制命令
+            self.publishCommand('ccw %d' % (int(-pitch_diff) if pitch_diff < -15 else 15))
+            return True
+        return False
 
     # 判断是否检测到目标
     def detectTarget(self):

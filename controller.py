@@ -67,16 +67,15 @@ class ControllerNode:
         self.target4 = [self.sphere4[i] + 1 * y_shift[i] for i in range(3)]
         self.target5 = [self.sphere5[i] + 1.25 * x_shift[i] for i in range(3)]
 
-        # 一些常数
-
+        # 无人机通讯相关
         self.is_begin_ = False
-
         self.commandPub_ = rospy.Publisher('/tello/cmd_string', String, queue_size=100)  # 发布tello格式控制信号
-
         self.poseSub_ = rospy.Subscriber('/tello/states', PoseStamped, self.poseCallback)  # 接收处理含噪无人机位姿信息
         self.imageSub_ = rospy.Subscriber('/iris/usb_cam/image_raw', Image, self.imageCallback)  # 接收摄像头图像
         self.imageSub_ = rospy.Subscriber('/tello/cmd_start', Bool, self.startcommandCallback)  # 接收开始飞行的命令
 
+        # 超参数
+        self.min_navigation_distance = 0.2  # 最小导航距离：如果当前无人机位置与目标位置在某个轴方向距离小于这个值，即不再这个轴方向上运动
         rate = rospy.Rate(0.3)
         while not rospy.is_shutdown():
             if self.is_begin_:
@@ -86,8 +85,7 @@ class ControllerNode:
 
     # 按照一定频率进行决策，并发布tello格式控制信号
     def decision(self):
-        # 超参数
-        min_navigation_distance = 0.2  # 最小导航距离：如果当前无人机位置与目标位置在某个轴方向距离小于这个值，即不再这个轴方向上运动
+
         # 起飞
         if self.flight_state_ == self.FlightState.WAITING:  # 起飞并飞至离墙体（y = 3.0m）适当距离的位置
             rospy.logwarn('State: WAITING')
@@ -110,7 +108,7 @@ class ControllerNode:
                 return
             dim_index = 0 if self.navigating_dimension_ == 'x' else (1 if self.navigating_dimension_ == 'y' else 2)
             dist = self.navigating_destination_ - self.t_wu_[dim_index]
-            if abs(dist) < min_navigation_distance:  # 当前段导航结束
+            if abs(dist) < self.min_navigation_distance:  # 当前段导航结束
                 self.switchNavigatingState()
             else:
                 dir_index = 0 if dist > 0 else 1  # direction index
