@@ -70,7 +70,7 @@ class ControllerNode:
         self.target_yaw = 90  # 初始化为识别window红点时的方向
         self.target_pitch = 0
         self.stage1 = 0
-        self.stage2 = 0
+        self.stage2 = 1
 
         # 超参数
         self.min_navigation_distance = 0.2  # 最小导航距离：如果当前无人机位置与目标位置在某个轴方向距离小于这个值，即不再这个轴方向上运动
@@ -82,7 +82,7 @@ class ControllerNode:
         self.poseSub_ = rospy.Subscriber('/tello/states', PoseStamped, self.poseCallback)  # 接收处理含噪无人机位姿信息
         self.imageSub_ = rospy.Subscriber('/iris/usb_cam/image_raw', Image, self.imageCallback)  # 接收摄像头图像
         self.imageSub_ = rospy.Subscriber('/tello/cmd_start', Bool, self.startcommandCallback)  # 接收开始飞行的命令
-        rate = rospy.Rate(0.2)
+        rate = rospy.Rate(0.21)
 
         while not rospy.is_shutdown():
             if self.is_begin_:
@@ -157,36 +157,60 @@ class ControllerNode:
                 rospy.loginfo('Go to window (0-2): %d' % win_index)
                 self.navigating_queue_ = deque(
                     [['y', 2.4], ['z', 0.95], ['x', self.window_x_list_[win_index]],
-                     ['y', 4.0], ['x', 3], ['y', 6.0], ['x', 5.0], ['y', 8.0]])  # 通过窗户并导航至特定位置
-                rospy.loginfo('[[Stage 1.0 - goto 3]]')
+                     ['y', 4.0], ['x', 3], ['y', 6.0], ['x', self.target1[0]], ['y', self.target1[1]],
+                     ['z', self.target1[2]]])  # 通过窗户并导航至特定位置
+                # self.navigating_queue_ = deque(
+                #     [['z', 0.95], ['x', self.window_x_list_[win_index]], ['y', 4.0], ['z', 3.0], ['y', self.target1[1]],
+                #      ['x', self.target1[0]], ['z', self.target1[2]]])  # 从上面飞
+                rospy.loginfo('[[Stage 0 - goto 3]]')
                 self.next_state_ = self.FlightState.NAVIGATING1
                 self.switchNavigatingState()
             else:
                 if self.t_wu_[0] > 7.5:
-                    rospy.loginfo('Detection failed, ready to land.')
+                    rospy.loginfo('Detection failed, redo.')
+                    self.navigating_queue_ = deque(
+                        [['x', self.window_x_list_[0]], ['y', 1.8], ['z', 1.75]])  # 回到第一个窗户上方
                     self.flight_state_ = self.FlightState.LANDING
                 else:  # 向右侧平移一段距离，继续检测
                     self.publishCommand('right 75')
 
         elif self.flight_state_ == self.FlightState.NAVIGATING1:
-            rospy.loginfo('[[Stage 1.1 - detect]]')
-            x = self.detect(self.target1)
-            if x == 1:
-                self.commandlist[2] = 'r'
-            elif x == 2:
-                self.commandlist[2] = 'y'
-            elif x == 3:
-                self.commandlist[2] = 'b'
-            rospy.loginfo(self.commandlist)
-            rospy.loginfo('[[Stage 1.2 - rotate 90 goto 1]]')
-            self.target_yaw = 0
-            self.navigating_queue_ = deque(
-                [['y', self.target2[1]], ['x', self.target2[0]]])
-            self.next_state_ = self.FlightState.NAVIGATING2
-            self.switchNavigatingState()
+            if self.stage1 == 0:
+                rospy.loginfo('[[Stage 1.0 - detect]]')
+                x = self.detect(self.target1)
+                if x == 1:
+                    self.commandlist[2] = 'r'
+                elif x == 2:
+                    self.commandlist[2] = 'y'
+                elif x == 3:
+                    self.commandlist[2] = 'b'
+                rospy.loginfo(self.commandlist)
+                self.stage1 = 1
+                return
+            elif self.stage1 == 1:
+                rospy.loginfo('[[Stage 1.1 - fly high]]')
+                self.navigating_queue_ = deque([['z', 2.75]])
+                self.stage1 = 2
+                self.switchNavigatingState()
+                return
+            elif self.stage1 == 2:
+                rospy.loginfo('[[Stage 1.2 - rotate goto next target]]')
+                self.target_yaw = -90
+                self.navigating_queue_ = deque(
+                    [['y', self.target2[1]], ['x', self.target2[0]], ['y', self.target2[1]], ['z', self.target2[2]]])
+                self.next_state_ = self.FlightState.NAVIGATING2
+                self.switchNavigatingState()
 
         elif self.flight_state_ == self.FlightState.NAVIGATING2:
-            if self.stage2 == 1:
+            if self.stage2 == 0:
+                rospy.loginfo('[[Stage 2.0 - ensure 1]]')
+                # self.target_yaw = -90
+                self.navigating_queue_ = deque(
+                    [['y', self.target2[1]], ['x', self.target2[0]], ['z', self.target2[2]]])
+                self.stage2 = 1
+                self.switchNavigatingState()
+                return
+            elif self.stage2 == 1:
                 rospy.loginfo('[[Stage 2.1 - detect goto 4]]')
                 x = self.detect(self.target2)
                 if x == 1:
@@ -197,16 +221,9 @@ class ControllerNode:
                     self.commandlist[0] = 'b'
                 rospy.loginfo(self.commandlist)
                 self.navigating_queue_ = deque(
-                    [['x', 6.25], ['y', self.target3[1]], ['x', self.target3[0]], ['z', self.target3[2]]])
+                    [['x', 6.25], ['y', self.target3[1]], ['x', self.target3[0]], ['y', self.target3[1]], ['z', self.target3[2]]])
                 self.switchNavigatingState()
                 self.next_state_ = self.FlightState.NAVIGATING3
-            elif self.stage2 == 0:
-                rospy.loginfo('[[Stage 2.0 - rotate 90 ensure 1]]')
-                self.target_yaw = -90
-                self.navigating_queue_ = deque(
-                    [['y', self.target2[1]], ['z', self.target2[2]], ['x', self.target2[0]]])
-                self.stage2 = 1
-                self.switchNavigatingState()
 
         elif self.flight_state_ == self.FlightState.NAVIGATING3:
             x = self.detect(self.target3)
@@ -268,13 +285,16 @@ class ControllerNode:
 
     def detect(self, target_position):
         rospy.logwarn('func: DETECTING_TARGET')
-        # 如果无人机飞行高度与标识高度（1.75m）相差太多，则需要进行调整
-        if self.t_wu_[2] > target_position[2] + 0.25:
-            self.publishCommand('down %d' % int(100 * (self.t_wu_[2] - target_position[2])))
-        elif self.t_wu_[2] < target_position[2] - 0.25:
-            self.publishCommand('up %d' % int(-100 * (self.t_wu_[2] - target_position[2])))
-        # # 如果yaw与90度相差超过正负10度，需要进行旋转调整yaw
-        # self.adjust_yaw(self.target_yaw)
+        # 没有return语句 导致没调整完高度就会检测 还是检测不到->改把调整都放进navigation
+        # # 如果无人机飞行高度与标识高度（1.75m）相差太多，则需要进行调整
+        # if self.t_wu_[2] > target_position[2] + 0.25:
+        #     self.publishCommand('down %d' % int(100 * (self.t_wu_[2] - target_position[2])))
+        #     return
+        # elif self.t_wu_[2] < target_position[2] - 0.25:
+        #     self.publishCommand('up %d' % int(-100 * (self.t_wu_[2] - target_position[2])))
+        #     return
+        # # # 如果yaw与90度相差超过正负10度，需要进行旋转调整yaw
+        # # self.adjust_yaw(self.target_yaw)
 
         if self.detectTarget() == 1:
             rospy.loginfo('Target detected red.')
