@@ -31,7 +31,6 @@ class ControllerNode:
         NAVIGATING2 = 6
         NAVIGATING3 = 7
         NAVIGATING4 = 8
-        NAVIGATING_FINAL = 9
 
     def __init__(self):
         rospy.init_node('controller_node', anonymous=True)
@@ -72,7 +71,6 @@ class ControllerNode:
         self.target_pitch = 0
         self.stage1 = 0
         self.stage2 = 0
-        self.stage3 = 0
 
         # 超参数
         self.min_navigation_distance = 0.2  # 最小导航距离：如果当前无人机位置与目标位置在某个轴方向距离小于这个值，即不再这个轴方向上运动
@@ -158,7 +156,7 @@ class ControllerNode:
                 win_index = win_dist.index(min(win_dist))  # 正确的窗户编号
                 rospy.loginfo('Go to window (0-2): %d' % win_index)
                 self.navigating_queue_ = deque(
-                    [['y', 2.4], ['z', 1.0], ['x', self.window_x_list_[win_index]],
+                    [['y', 2.4], ['z', 0.95], ['x', self.window_x_list_[win_index]],
                      ['y', 4.0], ['x', 3], ['y', 6.0], ['x', 5.0], ['y', 8.0]])  # 通过窗户并导航至特定位置
                 rospy.loginfo('[[Stage 1.0 - goto 3]]')
                 self.next_state_ = self.FlightState.NAVIGATING1
@@ -179,6 +177,7 @@ class ControllerNode:
                 self.commandlist[2] = 'y'
             elif x == 3:
                 self.commandlist[2] = 'b'
+            rospy.loginfo(self.commandlist)
             rospy.loginfo('[[Stage 1.2 - rotate 90 goto 1]]')
             self.target_yaw = 0
             self.navigating_queue_ = deque(
@@ -196,8 +195,9 @@ class ControllerNode:
                     self.commandlist[0] = 'y'
                 elif x == 3:
                     self.commandlist[0] = 'b'
+                rospy.loginfo(self.commandlist)
                 self.navigating_queue_ = deque(
-                    [['y', self.target3[1]], ['x', self.target3[0]], ['z', self.target3[2]]])
+                    [['x', 6.25], ['y', self.target3[1]], ['x', self.target3[0]], ['z', self.target3[2]]])
                 self.switchNavigatingState()
                 self.next_state_ = self.FlightState.NAVIGATING3
             elif self.stage2 == 0:
@@ -216,6 +216,7 @@ class ControllerNode:
                 self.commandlist[3] = 'y'
             elif x == 3:
                 self.commandlist[3] = 'b'
+            rospy.loginfo(self.commandlist)
             rospy.loginfo('***NAVIGATING4(4->5)...***')
             self.target_yaw = -180
             self.navigating_queue_ = deque(
@@ -237,10 +238,9 @@ class ControllerNode:
                 self.commandlist[1] = 'y'
             elif 'b' not in self.commandlist:
                 self.commandlist[1] = 'b'
+            rospy.loginfo(self.commandlist)
             commandstring = ''.join(self.commandlist)
             self.publishResult(commandstring)
-            self.next_state_ = self.FlightState.NAVIGATING_FINAL
-        elif self.flight_state_ == self.FlightState.NAVIGATING_FINAL:
             rospy.loginfo('***NAVIGATING5(4->FINAL)...***')
             self.navigating_queue_ = deque(
                 [['x', 4], ['y', 12.5], ['x', 7], ['y', 14.5]])
